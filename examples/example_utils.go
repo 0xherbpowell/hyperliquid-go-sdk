@@ -1,0 +1,221 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"hyperliquid-go-sdk/pkg/client"
+	"hyperliquid-go-sdk/pkg/types"
+	"hyperliquid-go-sdk/pkg/utils"
+)
+
+// Config represents the configuration structure
+type Config struct {
+	SecretKey      string `json:"secret_key"`
+	AccountAddress string `json:"account_address"`
+}
+
+// Setup initializes the exchange and info clients for examples
+func Setup(baseURL string, skipWS bool) (string, *client.Info, *client.Exchange) {
+	// Try to get private key from environment variable first
+	privateKeyHex := os.Getenv("HYPERLIQUID_PRIVATE_KEY")
+	address := os.Getenv("HYPERLIQUID_ADDRESS")
+	log.Printf("HYPERLIQUID_PRIVATE_KEY: %s\n", privateKeyHex)
+	log.Printf("HYPERLIQUID_ADDRESS: %s\n", address)
+	// If not found in environment, try to read from config file
+	if privateKeyHex == "" {
+		config := loadConfig()
+		privateKeyHex = config.SecretKey
+		if address == "" {
+			address = config.AccountAddress
+		}
+	}
+
+	if privateKeyHex == "" {
+		log.Fatal("Private key not found. Set HYPERLIQUID_PRIVATE_KEY environment variable or update config.json")
+	}
+
+	// Parse private key
+	privateKey, err := utils.ParsePrivateKey(privateKeyHex)
+	if err != nil {
+		log.Fatalf("Failed to parse private key: %v", err)
+	}
+	// Get address from private key - this is who will be signing
+	walletAddress := utils.GetAddressFromPrivateKey(privateKey)
+	
+	// Handle agent vs direct wallet scenarios
+	if address == "" {
+		// No account address specified, use the wallet address directly
+		address = walletAddress
+		fmt.Printf("Direct wallet mode: %s\n", address)
+	} else if address != walletAddress {
+		// Agent mode: wallet signs for the account
+		fmt.Printf("Agent mode: Account %s, Agent wallet %s\n", address, walletAddress)
+		// Keep the original account address - the SDK will handle agent signing
+	} else {
+		// Addresses match
+		fmt.Printf("Direct wallet mode: %s\n", address)
+	}
+
+	fmt.Printf("Running with account address: %s\n", address)
+
+	// Create info client
+	timeout := 30 * time.Second
+	info, err := client.NewInfo(baseURL, &timeout, skipWS, nil, nil, nil)
+	if err != nil {
+		log.Fatalf("Failed to create info client: %v", err)
+	}
+
+	// Check if account has equity
+	userState, err := info.UserState(address, "")
+	if err != nil {
+		log.Fatalf("Failed to get user state: %v", err)
+	}
+
+	// Check margin summary
+	if marginSummary, ok := userState["marginSummary"].(map[string]interface{}); ok {
+		if accountValue, ok := marginSummary["accountValue"].(string); ok {
+			if accountValue == "0" {
+				log.Fatal("Not running the example because the provided account has no equity.")
+			}
+		}
+	}
+
+	// Create exchange client
+	exchange, err := client.NewExchange(
+		privateKey,
+		baseURL,
+		&timeout,
+		nil,      // meta
+		nil,      // vault address
+		&address, // account address
+		nil,      // spot meta
+		nil,      // perp dexs
+	)
+	if err != nil {
+		log.Fatalf("Failed to create exchange client: %v", err)
+	}
+
+	return address, info, exchange
+}
+
+// loadConfig loads configuration from config.json file
+func loadConfig() *Config {
+	configPath := "./config.json"
+
+	// Check if config file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		fmt.Println("config.json not found. Please set environment variables or create config.json")
+		return &Config{}
+	}
+
+	file, err := os.Open(configPath)
+	if err != nil {
+		log.Printf("Error opening config file: %v", err)
+		return &Config{}
+	}
+	defer file.Close()
+
+	var config Config
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&config); err != nil {
+		log.Printf("Error decoding config file: %v", err)
+		return &Config{}
+	}
+
+	return &config
+}
+
+// PrintPositions prints user positions in a formatted way
+func PrintPositions(userState map[string]interface{}) {
+	if assetPositions, ok := userState["assetPositions"].([]interface{}); ok {
+		positions := []map[string]interface{}{}
+
+		for _, ap := range assetPositions {
+			if apMap, ok := ap.(map[string]interface{}); ok {
+				if position, ok := apMap["position"].(map[string]interface{}); ok {
+					positions = append(positions, position)
+				}
+			}
+		}
+
+		if len(positions) > 0 {
+			fmt.Println("positions:")
+			for _, position := range positions {
+				jsonData, _ := json.MarshalIndent(position, "", "  ")
+				fmt.Println(string(jsonData))
+			}
+		} else {
+			fmt.Println("no open positions")
+		}
+	}
+}
+
+// CreateGtcLimitOrder creates a Good Till Cancel limit order type
+func CreateGtcLimitOrder() types.OrderType {
+	return types.OrderType{
+		Limit: &types.LimitOrderType{
+			Tif: types.TifGtc,
+		},
+	}
+}
+
+// CreateIocLimitOrder creates an Immediate or Cancel limit order type
+func CreateIocLimitOrder() types.OrderType {
+	return types.OrderType{
+		Limit: &types.LimitOrderType{
+			Tif: types.TifIoc,
+		},
+	}
+}
+
+// CreateTpslOrder creates a take profit or stop loss order type
+func CreateTpslOrder(triggerPx float64, isMarket bool, tpsl types.Tpsl) types.OrderType {
+	return types.OrderType{
+		Trigger: &types.TriggerOrderType{
+			TriggerPx: triggerPx,
+			IsMarket:  isMarket,
+			Tpsl:      tpsl,
+		},
+	}
+}
+
+// GenerateCloid generates a unique client order ID
+func GenerateCloid() *types.Cloid {
+	return types.NewCloidFromInt(time.Now().Unix())
+}
+
+// PrintOrderResult prints the order result in a formatted way
+func PrintOrderResult(result map[string]interface{}) {
+	jsonData, _ := json.MarshalIndent(result, "", "  ")
+	fmt.Println(string(jsonData))
+}
+
+// ParsePrice parses a price string to float64
+func ParsePrice(priceStr string) (float64, error) {
+	return strconv.ParseFloat(priceStr, 64)
+}
+
+// GetRestingOid extracts the resting order ID from order result
+func GetRestingOid(orderResult map[string]interface{}) (int, bool) {
+	if status, ok := orderResult["status"].(string); ok && status == "ok" {
+		if response, ok := orderResult["response"].(map[string]interface{}); ok {
+			if data, ok := response["data"].(map[string]interface{}); ok {
+				if statuses, ok := data["statuses"].([]interface{}); ok && len(statuses) > 0 {
+					if statusMap, ok := statuses[0].(map[string]interface{}); ok {
+						if resting, ok := statusMap["resting"].(map[string]interface{}); ok {
+							if oidFloat, ok := resting["oid"].(float64); ok {
+								return int(oidFloat), true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0, false
+}

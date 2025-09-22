@@ -1,0 +1,20 @@
+{
+  "secret_key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "account_address": ""
+}
+
+// Instructions:
+// 1. Copy this file to config.json
+// 2. Replace the secret_key with your actual private key
+// 3. Optionally set account_address if different from the private key's address
+// 4. Never commit config.json to version control!
+//
+// Alternatively, you can use environment variables:
+// export HYPERLIQUID_PRIVATE_KEY="0x..."
+// export HYPERLIQUID_ADDRESS="0x..." (optional)
+//
+// Security Notes:
+// - Keep your private key secure and never share it
+// - Use testnet for development and testing
+// - Consider using environment variables instead of config files
+// - Add config.json to your .gitignore file
