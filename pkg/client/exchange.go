@@ -59,9 +59,10 @@ func (e *Exchange) SetExpiresAfter(expiresAfter *int64) {
 }
 
 // postAction posts an action to the exchange
+// postAction posts an action to the exchange - corrected to match Python reference exactly
 func (e *Exchange) postAction(action map[string]interface{}, signature interface{}, nonce int64) (map[string]interface{}, error) {
+	// Convert signature to map format if it's a SignatureResult
 	var vaultAddress *string
-	// Only add vaultAddress for certain action types
 	actionType, ok := action["type"].(string)
 	if ok && actionType != "usdClassTransfer" && actionType != "sendAsset" {
 		vaultAddress = e.vaultAddress
@@ -69,7 +70,6 @@ func (e *Exchange) postAction(action map[string]interface{}, signature interface
 		vaultAddress = nil
 	}
 
-	// Convert signature to map format if it's a SignatureResult
 	var sigMap map[string]interface{}
 	switch sig := signature.(type) {
 	case utils.SignatureResult:
@@ -84,25 +84,13 @@ func (e *Exchange) postAction(action map[string]interface{}, signature interface
 		return nil, fmt.Errorf("unsupported signature type")
 	}
 
+	// Build payload matching Python reference exactly
 	payload := map[string]interface{}{
-		"action":    action,
-		"nonce":     nonce,
-		"signature": sigMap,
-	}
-
-	// Add optional fields only if they have values
-	if vaultAddress != nil {
-		payload["vaultAddress"] = vaultAddress
-	}
-
-	if e.expiresAfter != nil {
-		payload["expiresAfter"] = e.expiresAfter
-	}
-
-	// Handle agent mode: if account address differs from wallet address, include user field
-	walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
-	if e.accountAddress != nil && *e.accountAddress != walletAddress {
-		payload["user"] = *e.accountAddress
+		"action":       action,
+		"nonce":        nonce,
+		"signature":    sigMap,
+		"vaultAddress": vaultAddress,   // Always include, default to nil
+		"expiresAfter": e.expiresAfter, // Always include, can be nil
 	}
 
 	log.Println("Payload:", payload)
@@ -223,14 +211,14 @@ func (e *Exchange) BulkOrders(orderRequests []types.OrderRequest, builder *types
 
 	timestamp := utils.GetTimestampMS()
 
-	// Normalize builder address to lowercase
+	// Normalize builder address to lowercase (matching Python reference)
 	if builder != nil {
 		builder.B = strings.ToLower(builder.B)
 	}
 
 	orderAction := utils.OrderWiresToOrderAction(orderWires, builder)
 
-	// Use SignL1Action directly - postAction will handle the conversion
+	// Use SignL1Action (as you requested) - postAction handles the signature format
 	signature, err := utils.SignL1Action(
 		e.privateKey,
 		orderAction,

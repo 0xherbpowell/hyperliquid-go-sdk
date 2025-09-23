@@ -99,15 +99,27 @@ func (c *Cloid) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type MarginTier struct {
+	LowerBound  string `json:"lowerBound"`
+	MaxLeverage int    `json:"maxLeverage"`
+}
+
 // AssetInfo represents metadata about an asset
 type AssetInfo struct {
 	Name       string `json:"name"`
 	SzDecimals int    `json:"szDecimals"`
 }
 
+type MarginTable struct {
+	ID          int
+	Description string       `json:"description"`
+	MarginTiers []MarginTier `json:"marginTiers"`
+}
+
 // Meta represents the universe of assets
 type Meta struct {
-	Universe []AssetInfo `json:"universe"`
+	Universe     []AssetInfo   `json:"universe"`
+	MarginTables []MarginTable `json:"marginTables"`
 }
 
 // SpotAssetInfo represents spot asset information
