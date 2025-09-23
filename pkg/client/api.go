@@ -51,6 +51,11 @@ func (a *API) Post(urlPath string, payload interface{}) (map[string]interface{},
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 	
+	// Debug: Print the actual JSON being sent
+	if urlPath == "/exchange" {
+		fmt.Printf("\n=== DEBUG: Actual JSON being sent ===\n%s\n===\n", string(jsonData))
+	}
+	
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

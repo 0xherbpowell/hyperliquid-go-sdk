@@ -174,8 +174,8 @@ type TriggerOrderType struct {
 
 // TriggerOrderTypeWire represents a trigger order for wire format
 type TriggerOrderTypeWire struct {
-	TriggerPx string `json:"triggerPx" msgpack:"triggerPx"`
 	IsMarket  bool   `json:"isMarket" msgpack:"isMarket"`
+	TriggerPx string `json:"triggerPx" msgpack:"triggerPx"`
 	Tpsl      Tpsl   `json:"tpsl" msgpack:"tpsl"`
 }
 

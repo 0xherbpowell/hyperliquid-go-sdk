@@ -74,15 +74,21 @@ func (e *Exchange) postAction(action map[string]interface{}, signature map[strin
 		"nonce":        nonce,
 		"signature":    signature,
 		"vaultAddress": vaultAddress,
-		"expiresAfter": e.expiresAfter,
+		"expiresAfter": e.expiresAfter, // Always include, even if nil (like Python SDK)
 	}
 	
-	// For agent trading, specify the user account
-	walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
-	if e.accountAddress != nil && *e.accountAddress != walletAddress {
-		// Agent mode: signing with agent key for account
-		payload["user"] = *e.accountAddress
-	}
+	// TODO: Check if isFrontend is needed
+	// Temporarily removing to test
+	// if actionType == "order" || actionType == "cancel" || actionType == "cancelAll" || actionType == "modify" {
+	// 	payload["isFrontend"] = true
+	// }
+	
+	// TODO: Figure out agent mode issue
+	// walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
+	// if e.accountAddress != nil && *e.accountAddress != walletAddress {
+	// 	// Agent mode: signing with agent key for account
+	// 	payload["user"] = *e.accountAddress
+	// }
 	
 	log.Println("Payload:", payload)
 	return e.Post("/exchange", payload)
@@ -209,13 +215,15 @@ func (e *Exchange) BulkOrders(orderRequests []types.OrderRequest, builder *types
 
 	orderAction := utils.OrderWiresToOrderAction(orderWires, builder)
 
-	signature, err := utils.SignL1Action(
+	// Use SignL1ActionWithAccount to handle agent mode properly
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		orderAction,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign order action: %w", err)
@@ -322,13 +330,14 @@ func (e *Exchange) Cancel(coin string, oid int) (map[string]interface{}, error) 
 		},
 	}
 
-	signature, err := utils.SignL1Action(
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign cancel action: %w", err)
@@ -356,13 +365,14 @@ func (e *Exchange) CancelByCloid(coin string, cloid *types.Cloid) (map[string]in
 		},
 	}
 
-	signature, err := utils.SignL1Action(
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign cancel by cloid action: %w", err)
@@ -385,23 +395,37 @@ func (e *Exchange) Modify(oid int, orderRequest types.OrderRequest) (map[string]
 
 	timestamp := utils.GetTimestampMS()
 
+	// Convert OrderWire to map for proper JSON serialization
+	orderMap := map[string]interface{}{
+		"a": orderWire.A,
+		"b": orderWire.B,
+		"p": orderWire.P,
+		"s": orderWire.S,
+		"r": orderWire.R,
+		"t": utils.ConvertOrderTypeWireToMap(orderWire.T),
+	}
+	if orderWire.C != nil {
+		orderMap["c"] = *orderWire.C
+	}
+	
 	action := map[string]interface{}{
 		"type": "modify",
 		"modifies": []map[string]interface{}{
 			{
 				"oid":   oid,
-				"order": orderWire,
+				"order": orderMap,
 			},
 		},
 	}
 
-	signature, err := utils.SignL1Action(
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign modify action: %w", err)
@@ -418,13 +442,14 @@ func (e *Exchange) CancelAll() (map[string]interface{}, error) {
 		"type": "cancelAll",
 	}
 
-	signature, err := utils.SignL1Action(
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign cancel all action: %w", err)
@@ -449,13 +474,14 @@ func (e *Exchange) UpdateLeverage(coin string, isCross bool, leverage int) (map[
 		"leverage": leverage,
 	}
 
-	signature, err := utils.SignL1Action(
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign update leverage action: %w", err)
@@ -480,13 +506,14 @@ func (e *Exchange) UpdateIsolatedMargin(coin string, isBuy bool, ntli int64) (ma
 		"ntli":  ntli,
 	}
 
-	signature, err := utils.SignL1Action(
+	signature, err := utils.SignL1ActionWithAccount(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
+		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign update isolated margin action: %w", err)

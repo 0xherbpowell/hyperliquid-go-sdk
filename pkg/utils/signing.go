@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,10 +13,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 	"github.com/vmihailenco/msgpack/v5"
-	"golang.org/x/crypto/sha3"
 
 	"hyperliquid-go-sdk/pkg/types"
 )
@@ -32,6 +33,13 @@ type EIP712Domain struct {
 type PhantomAgent struct {
 	Source       string      `json:"source"`
 	ConnectionId common.Hash `json:"connectionId"`
+}
+
+// SignatureResult represents the structured signature result
+type SignatureResult struct {
+	R string `json:"r"`
+	S string `json:"s"`
+	V int    `json:"v"`
 }
 
 // SignTypes defines the signing type structures
@@ -97,7 +105,7 @@ var (
 	}
 )
 
-// FloatToWire converts a float to wire format string
+// FloatToWire converts a float to wire format string matching Python SDK exactly
 func FloatToWire(x float64) (string, error) {
 	// Convert to string with 8 decimal places to match Python SDK
 	rounded := fmt.Sprintf("%.8f", x)
@@ -117,16 +125,17 @@ func FloatToWire(x float64) (string, error) {
 		rounded = "0.00000000"
 	}
 
-	// Remove trailing zeros (must match Python behavior exactly)
-	rounded = strings.TrimRight(rounded, "0")
-	rounded = strings.TrimRight(rounded, ".")
-
-	// Ensure we never return an empty string
-	if rounded == "" {
-		rounded = "0"
+	// Normalize like Python's Decimal.normalize() - remove trailing zeros
+	// Parse as float and format without trailing zeros
+	val, err := strconv.ParseFloat(rounded, 64)
+	if err != nil {
+		return "", err
 	}
-
-	return rounded, nil
+	
+	// Format without trailing zeros, similar to Python's normalize()
+	result := strconv.FormatFloat(val, 'f', -1, 64)
+	
+	return result, nil
 }
 
 // abs returns the absolute value of a float64
@@ -170,7 +179,10 @@ func pow10(n int) float64 {
 
 // round rounds a float64 to the nearest integer
 func round(x float64) float64 {
-	return float64(int64(x + 0.5))
+	if x >= 0 {
+		return float64(int64(x + 0.5))
+	}
+	return float64(int64(x - 0.5))
 }
 
 // GetTimestampMS returns current timestamp in milliseconds
@@ -188,21 +200,30 @@ func AddressToBytes(address string) ([]byte, error) {
 	return hex.DecodeString(address)
 }
 
-// ActionHash computes the hash of an action
+// ActionHash computes the hash of an action using same logic as reference SDK
 func ActionHash(action interface{}, vaultAddress *string, nonce int64, expiresAfter *int64) ([]byte, error) {
-	// Pack action with msgpack
-	data, err := msgpack.Marshal(action)
+	// Pack action using msgpack with consistent settings
+	var buf bytes.Buffer
+	enc := msgpack.NewEncoder(&buf)
+	enc.SetSortMapKeys(true)
+	enc.UseCompactInts(true)
+	
+	err := enc.Encode(action)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal action: %w", err)
 	}
+	data := buf.Bytes()
 
 	// Add nonce (8 bytes big endian)
+	if nonce < 0 {
+		return nil, fmt.Errorf("nonce cannot be negative: %d", nonce)
+	}
 	nonceBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBytes, uint64(nonce))
 	data = append(data, nonceBytes...)
 
 	// Add vault address
-	if vaultAddress == nil {
+	if vaultAddress == nil || *vaultAddress == "" {
 		data = append(data, 0x00)
 	} else {
 		data = append(data, 0x01)
@@ -213,64 +234,59 @@ func ActionHash(action interface{}, vaultAddress *string, nonce int64, expiresAf
 		data = append(data, vaultBytes...)
 	}
 
-	// Add expires after
+	// Add expires after - only if it's not nil (matches reference behavior)
 	if expiresAfter != nil {
-		data = append(data, 0x01)
+		if *expiresAfter < 0 {
+			return nil, fmt.Errorf("expiresAfter cannot be negative: %d", *expiresAfter)
+		}
+		data = append(data, 0x00)
 		expiresBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(expiresBytes, uint64(*expiresAfter))
 		data = append(data, expiresBytes...)
-	} else {
-		data = append(data, 0x00)
 	}
+	// If expires_after is nil, add nothing (matches reference behavior)
 
 	// Return keccak hash
-	hasher := sha3.NewLegacyKeccak256()
-	hasher.Write(data)
-	return hasher.Sum(nil), nil
+	return crypto.Keccak256(data), nil
 }
 
 // ConstructPhantomAgent creates a phantom agent from hash
-func ConstructPhantomAgent(hash []byte, isMainnet bool) PhantomAgent {
+func ConstructPhantomAgent(hash []byte, isMainnet bool) map[string]interface{} {
 	source := "b"
 	if isMainnet {
 		source = "a"
 	}
 
-	var connectionId common.Hash
-	copy(connectionId[:], hash)
-
-	return PhantomAgent{
-		Source:       source,
-		ConnectionId: connectionId,
+	return map[string]interface{}{
+		"source":       source,
+		"connectionId": hash,
 	}
 }
 
-// L1Payload constructs the EIP712 payload for L1 actions
-func L1Payload(phantomAgent PhantomAgent) apitypes.TypedData {
+// L1Payload constructs the EIP712 payload for L1 actions using same logic as reference SDK
+func L1Payload(phantomAgent map[string]interface{}) apitypes.TypedData {
+	chainId := math.HexOrDecimal256(*big.NewInt(EIP712ChainID))
 	return apitypes.TypedData{
+		Domain: apitypes.TypedDataDomain{
+			ChainId:           &chainId,
+			Name:              "Exchange",
+			Version:           "1",
+			VerifyingContract: "0x0000000000000000000000000000000000000000",
+		},
 		Types: apitypes.Types{
+			"Agent": []apitypes.Type{
+				{Name: "source", Type: "string"},
+				{Name: "connectionId", Type: "bytes32"},
+			},
 			"EIP712Domain": []apitypes.Type{
 				{Name: "name", Type: "string"},
 				{Name: "version", Type: "string"},
 				{Name: "chainId", Type: "uint256"},
 				{Name: "verifyingContract", Type: "address"},
 			},
-			"Agent": []apitypes.Type{
-				{Name: "source", Type: "string"},
-				{Name: "connectionId", Type: "bytes32"},
-			},
 		},
 		PrimaryType: "Agent",
-		Domain: apitypes.TypedDataDomain{
-			Name:              "Exchange",
-			Version:           "1",
-			ChainId:           (*math.HexOrDecimal256)(big.NewInt(EIP712ChainID)),
-			VerifyingContract: "0x0000000000000000000000000000000000000000",
-		},
-		Message: apitypes.TypedDataMessage{
-			"source":       phantomAgent.Source,
-			"connectionId": phantomAgent.ConnectionId,
-		},
+		Message:     phantomAgent,
 	}
 }
 
@@ -320,26 +336,47 @@ func UserSignedPayload(primaryType string, payloadTypes []apitypes.Type, action 
 	}
 }
 
-// SignL1Action signs an L1 action
-func SignL1Action(privateKey *ecdsa.PrivateKey, action interface{}, activePool *string, nonce int64, expiresAfter *int64, isMainnet bool) (map[string]interface{}, error) {
-	return SignL1ActionWithAccount(privateKey, action, activePool, nonce, expiresAfter, isMainnet, nil)
+// SignL1Action signs an L1 action and returns SignatureResult
+func SignL1Action(privateKey *ecdsa.PrivateKey, action interface{}, vaultAddress string, nonce int64, expiresAfter *int64, isMainnet bool) (SignatureResult, error) {
+	// Step 1: Create action hash
+	hash, err := ActionHash(action, &vaultAddress, nonce, expiresAfter)
+	if err != nil {
+		return SignatureResult{}, err
+	}
+
+	// Step 2: Construct phantom agent
+	phantomAgent := ConstructPhantomAgent(hash, isMainnet)
+
+	// Step 3: Create l1 payload
+	typedData := L1Payload(phantomAgent)
+
+	// Step 4: Sign using EIP-712
+	return SignInner(privateKey, typedData)
 }
 
 // SignL1ActionWithAccount signs an L1 action with optional account address for agent trading
+// Returns map[string]interface{} for compatibility with existing exchange code
 func SignL1ActionWithAccount(privateKey *ecdsa.PrivateKey, action interface{}, activePool *string, nonce int64, expiresAfter *int64, isMainnet bool, accountAddress *string) (map[string]interface{}, error) {
 	// For agent trading, the signature is the same, but the system relies on
 	// the agent being pre-authorized to act on behalf of the account
 	// The account address is handled at the exchange/API level, not in the signature
 
-	hash, err := ActionHash(action, activePool, nonce, expiresAfter)
+	vaultAddress := ""
+	if activePool != nil {
+		vaultAddress = *activePool
+	}
+
+	sig, err := SignL1Action(privateKey, action, vaultAddress, nonce, expiresAfter, isMainnet)
 	if err != nil {
 		return nil, err
 	}
 
-	phantomAgent := ConstructPhantomAgent(hash, isMainnet)
-	data := L1Payload(phantomAgent)
-
-	return SignInner(privateKey, data)
+	// Convert SignatureResult to map for compatibility
+	return map[string]interface{}{
+		"r": sig.R,
+		"s": sig.S,
+		"v": sig.V,
+	}, nil
 }
 
 // SignUserSignedAction signs a user signed action
@@ -359,44 +396,51 @@ func SignUserSignedAction(privateKey *ecdsa.PrivateKey, action map[string]interf
 	}
 
 	data := UserSignedPayload(primaryType, payloadTypes, signAction)
-	return SignInner(privateKey, data)
+	sig, err := SignInner(privateKey, data)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Convert SignatureResult to map for compatibility
+	return map[string]interface{}{
+		"r": sig.R,
+		"s": sig.S,
+		"v": sig.V,
+	}, nil
 }
 
-// SignInner performs the actual signing
-func SignInner(privateKey *ecdsa.PrivateKey, data apitypes.TypedData) (map[string]interface{}, error) {
-	// Hash the typed data
-	hash, err := data.HashStruct(data.PrimaryType, data.Message)
+// SignInner performs the actual signing and returns SignatureResult like reference SDK
+func SignInner(privateKey *ecdsa.PrivateKey, typedData apitypes.TypedData) (SignatureResult, error) {
+	// Create EIP-712 hash
+	domainSeparator, err := typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
 	if err != nil {
-		return nil, err
+		return SignatureResult{}, fmt.Errorf("failed to hash domain: %w", err)
 	}
 
-	// Create the final hash with domain separator
-	domainSeparator, err := data.HashStruct("EIP712Domain", data.Domain.Map())
+	typedDataHash, err := typedData.HashStruct(typedData.PrimaryType, typedData.Message)
 	if err != nil {
-		return nil, err
+		return SignatureResult{}, fmt.Errorf("failed to hash typed data: %w", err)
 	}
 
-	finalHash := crypto.Keccak256(
-		[]byte("\x19\x01"),
-		domainSeparator,
-		hash,
-	)
+	rawData := []byte{0x19, 0x01}
+	rawData = append(rawData, domainSeparator...)
+	rawData = append(rawData, typedDataHash...)
+	msgHash := crypto.Keccak256Hash(rawData)
 
-	// Sign the hash
-	signature, err := crypto.Sign(finalHash, privateKey)
+	signature, err := crypto.Sign(msgHash.Bytes(), privateKey)
 	if err != nil {
-		return nil, err
+		return SignatureResult{}, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// Parse signature components
-	r := signature[:32]
-	s := signature[32:64]
-	v := signature[64] + 27 // Convert to Ethereum format
+	// Extract r, s, v components
+	r := new(big.Int).SetBytes(signature[:32])
+	s := new(big.Int).SetBytes(signature[32:64])
+	v := int(signature[64]) + 27
 
-	return map[string]interface{}{
-		"r": "0x" + hex.EncodeToString(r),
-		"s": "0x" + hex.EncodeToString(s),
-		"v": int(v),
+	return SignatureResult{
+		R: hexutil.EncodeBig(r),
+		S: hexutil.EncodeBig(s),
+		V: v,
 	}, nil
 }
 
@@ -459,20 +503,61 @@ func OrderRequestToOrderWire(order types.OrderRequest, asset int) (types.OrderWi
 	return wire, nil
 }
 
+// ConvertOrderTypeWireToMap converts OrderTypeWire to map format for JSON serialization
+func ConvertOrderTypeWireToMap(orderType types.OrderTypeWire) map[string]interface{} {
+	if orderType.Limit != nil {
+		return map[string]interface{}{
+			"limit": map[string]interface{}{
+				"tif": string(orderType.Limit.Tif),
+			},
+		}
+	} else if orderType.Trigger != nil {
+		return map[string]interface{}{
+			"trigger": map[string]interface{}{
+				"triggerPx": orderType.Trigger.TriggerPx, // Already a string
+				"isMarket":  orderType.Trigger.IsMarket,
+				"tpsl":      string(orderType.Trigger.Tpsl),
+			},
+		}
+	}
+	return map[string]interface{}{}
+}
+
 // OrderWiresToOrderAction converts order wires to order action
 func OrderWiresToOrderAction(orderWires []types.OrderWire, builder *types.BuilderInfo) map[string]interface{} {
-	// Create ordered map to ensure consistent field ordering for msgpack
-	// Field order MUST match Python SDK exactly per Hyperliquid docs
-	action := make(map[string]interface{})
-	
-	// Add fields in the EXACT order used by Python SDK
-	// Python uses: {"type": "order", "orders": [...], "grouping": "na"}
-	action["type"] = "order"
-	action["orders"] = orderWires
-	action["grouping"] = "na"
+	// Convert OrderWires to maps to ensure proper JSON serialization
+	// This matches the TypeScript SDK format exactly
+	orderMaps := make([]map[string]interface{}, len(orderWires))
+	for i, wire := range orderWires {
+		orderMap := map[string]interface{}{
+			"a": wire.A,  // asset (number)
+			"b": wire.B,  // isBuy (boolean)
+			"p": wire.P,  // price (string)
+			"s": wire.S,  // size (string)
+			"r": wire.R,  // reduceOnly (boolean)
+			"t": ConvertOrderTypeWireToMap(wire.T), // orderType (object)
+		}
+		
+		// Add cloid if present
+		if wire.C != nil {
+			orderMap["c"] = *wire.C
+		}
+		
+		orderMaps[i] = orderMap
+	}
+
+	// Create action with proper structure matching TypeScript SDK
+	action := map[string]interface{}{
+		"type":     "order",
+		"orders":   orderMaps, // Now using maps instead of structs
+		"grouping": "na",
+	}
 	
 	if builder != nil {
-		action["builder"] = builder
+		action["builder"] = map[string]interface{}{
+			"b": builder.B,
+			"f": builder.F,
+		}
 	}
 
 	return action

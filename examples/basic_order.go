@@ -19,12 +19,12 @@ func main() {
 
 	PrintPositions(userState)
 
-	// Place an order that should rest by setting the price very low
+	// Place an order that should rest by setting the price below market
 	orderResult, err := exchange.Order(
 		"ETH",                 // coin
 		true,                  // isBuy
-		0.2,                   // size
-		1100.0,                // limit price (low price to ensure it rests)
+		0.01,                  // size (smaller, safer size)
+		4000.0,                // limit price
 		CreateGtcLimitOrder(), // order type
 		false,                 // reduce only
 		nil,                   // cloid
@@ -32,6 +32,8 @@ func main() {
 	)
 	if err != nil {
 		log.Printf("Failed to place order: %v", err)
+		// Try to get more detailed error info
+		fmt.Printf("Error details: %+v\n", err)
 		return
 	}
 
