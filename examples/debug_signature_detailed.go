@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/ecdsa"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -125,8 +124,8 @@ func main() {
 	// Step 2: Phantom agent
 	fmt.Println("\n=== Step 2: Phantom Agent ===")
 	phantomAgent := utils.ConstructPhantomAgent(actionHash, isMainnet)
-	fmt.Printf("Phantom agent source: %s\n", phantomAgent.Source)
-	fmt.Printf("Phantom agent connectionId: %x\n", phantomAgent.ConnectionId)
+	fmt.Printf("Phantom agent source: %s\n", phantomAgent["source"])
+	fmt.Printf("Phantom agent connectionId: %x\n", phantomAgent["connectionId"])
 
 	// Step 3: EIP712 payload
 	fmt.Println("\n=== Step 3: EIP712 Payload ===")

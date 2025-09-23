@@ -131,10 +131,10 @@ func FloatToWire(x float64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Format without trailing zeros, similar to Python's normalize()
 	result := strconv.FormatFloat(val, 'f', -1, 64)
-	
+
 	return result, nil
 }
 
@@ -207,7 +207,7 @@ func ActionHash(action interface{}, vaultAddress *string, nonce int64, expiresAf
 	enc := msgpack.NewEncoder(&buf)
 	enc.SetSortMapKeys(true)
 	enc.UseCompactInts(true)
-	
+
 	err := enc.Encode(action)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal action: %w", err)
@@ -386,7 +386,7 @@ func SignUserSignedAction(privateKey *ecdsa.PrivateKey, action map[string]interf
 	for k, v := range action {
 		signAction[k] = v
 	}
-	
+
 	// Add required fields
 	signAction["signatureChainId"] = SignatureChainID
 	if isMainnet {
@@ -400,7 +400,7 @@ func SignUserSignedAction(privateKey *ecdsa.PrivateKey, action map[string]interf
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Convert SignatureResult to map for compatibility
 	return map[string]interface{}{
 		"r": sig.R,
@@ -487,12 +487,12 @@ func OrderRequestToOrderWire(order types.OrderRequest, asset int) (types.OrderWi
 
 	// Create OrderWire with fields in the expected order
 	wire := types.OrderWire{
-		A: asset,        // asset ID
-		B: order.IsBuy,  // is buy order
-		P: limitPxWire,  // limit price
-		S: szWire,       // size
+		A: asset,            // asset ID
+		B: order.IsBuy,      // is buy order
+		P: limitPxWire,      // limit price
+		S: szWire,           // size
 		R: order.ReduceOnly, // reduce only
-		T: orderTypeWire, // order type
+		T: orderTypeWire,    // order type
 	}
 
 	if order.Cloid != nil {
@@ -530,19 +530,19 @@ func OrderWiresToOrderAction(orderWires []types.OrderWire, builder *types.Builde
 	orderMaps := make([]map[string]interface{}, len(orderWires))
 	for i, wire := range orderWires {
 		orderMap := map[string]interface{}{
-			"a": wire.A,  // asset (number)
-			"b": wire.B,  // isBuy (boolean)
-			"p": wire.P,  // price (string)
-			"s": wire.S,  // size (string)
-			"r": wire.R,  // reduceOnly (boolean)
+			"a": wire.A,                            // asset (number)
+			"b": wire.B,                            // isBuy (boolean)
+			"p": wire.P,                            // price (string)
+			"s": wire.S,                            // size (string)
+			"r": wire.R,                            // reduceOnly (boolean)
 			"t": ConvertOrderTypeWireToMap(wire.T), // orderType (object)
 		}
-		
+
 		// Add cloid if present
 		if wire.C != nil {
 			orderMap["c"] = *wire.C
 		}
-		
+
 		orderMaps[i] = orderMap
 	}
 
@@ -552,7 +552,7 @@ func OrderWiresToOrderAction(orderWires []types.OrderWire, builder *types.Builde
 		"orders":   orderMaps, // Now using maps instead of structs
 		"grouping": "na",
 	}
-	
+
 	if builder != nil {
 		action["builder"] = map[string]interface{}{
 			"b": builder.B,
@@ -598,7 +598,7 @@ func SignUSDTransferAction(privateKey *ecdsa.PrivateKey, action map[string]inter
 			signAction[k] = v
 		}
 	}
-	
+
 	return SignUserSignedAction(privateKey, signAction, USDSendSignTypes, "HyperliquidTransaction:UsdSend", isMainnet)
 }
 
@@ -635,7 +635,7 @@ func SignAgent(privateKey *ecdsa.PrivateKey, action map[string]interface{}, isMa
 		{Name: "agentName", Type: "string"},
 		{Name: "nonce", Type: "uint64"},
 	}
-	
+
 	// Create a copy of the action for signing with proper type conversions
 	signAction := make(map[string]interface{})
 	for k, v := range action {
@@ -662,7 +662,7 @@ func SignAgent(privateKey *ecdsa.PrivateKey, action map[string]interface{}, isMa
 			signAction[k] = v
 		}
 	}
-	
+
 	return SignUserSignedAction(privateKey, signAction, agentSignTypes, "HyperliquidTransaction:ApproveAgent", isMainnet)
 }
 

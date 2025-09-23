@@ -83,12 +83,12 @@ func (e *Exchange) postAction(action map[string]interface{}, signature map[strin
 	// 	payload["isFrontend"] = true
 	// }
 	
-	// TODO: Figure out agent mode issue
-	// walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
-	// if e.accountAddress != nil && *e.accountAddress != walletAddress {
-	// 	// Agent mode: signing with agent key for account
-	// 	payload["user"] = *e.accountAddress
-	// }
+	// Handle agent mode: if account address differs from wallet address, include user field
+	walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
+	if e.accountAddress != nil && *e.accountAddress != walletAddress {
+		// Agent mode: signing with agent key for account
+		payload["user"] = *e.accountAddress
+	}
 	
 	log.Println("Payload:", payload)
 	return e.Post("/exchange", payload)
