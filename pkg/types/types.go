@@ -57,7 +57,7 @@ func NewCloid(raw string) (*Cloid, error) {
 
 // NewCloidFromInt creates a new Cloid from an integer
 func NewCloidFromInt(cloid int64) *Cloid {
-	return &Cloid{rawCloid: fmt.Sprintf("%#034x", cloid)}
+	return &Cloid{rawCloid: fmt.Sprintf("0x%032x", cloid)}
 }
 
 // String returns the raw cloid string

@@ -190,16 +190,6 @@ func GetTimestampMS() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
 }
 
-//// AddressToBytes converts hex address string to bytes
-//func AddressToBytes(address string) ([]byte, error) {
-//	// Always lowercase the address as per Hyperliquid docs
-//	address = strings.ToLower(address)
-//	if strings.HasPrefix(address, "0x") {
-//		address = address[2:]
-//	}
-//	return hex.DecodeString(address)
-//}
-
 func addressToBytes(address string) []byte {
 	address = strings.TrimPrefix(address, "0x")
 	bytes, _ := hex.DecodeString(address)
@@ -268,10 +258,12 @@ func ConstructPhantomAgent(hash []byte, isMainnet bool) map[string]interface{} {
 
 // L1Payload constructs the EIP712 payload for L1 actions using same logic as reference SDK
 func L1Payload(phantomAgent map[string]interface{}) apitypes.TypedData {
-	chainId := math.HexOrDecimal256(*big.NewInt(EIP712ChainID))
+	// Fix: Use direct cast instead of dereferencing to avoid conversion issues
+	chainIdValue := big.NewInt(EIP712ChainID)
+	chainId := (*math.HexOrDecimal256)(chainIdValue)
 	return apitypes.TypedData{
 		Domain: apitypes.TypedDataDomain{
-			ChainId:           &chainId,
+			ChainId:           chainId,
 			Name:              "Exchange",
 			Version:           "1",
 			VerifyingContract: "0x0000000000000000000000000000000000000000",
@@ -339,32 +331,6 @@ func UserSignedPayload(primaryType string, payloadTypes []apitypes.Type, action 
 	}
 }
 
-// SignL1Action signs an L1 action and returns SignatureResult
-//func SignL1Action(privateKey *ecdsa.PrivateKey, action interface{}, vaultAddress string, nonce int64, expiresAfter *int64, isMainnet bool) (map[string]interface{}, error) {
-//	hash, err := ActionHash(action, vaultAddress, nonce, expiresAfter)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	// Step 2: Construct phantom agent
-//	phantomAgent := ConstructPhantomAgent(hash, isMainnet)
-//
-//	// Step 3: Create l1 payload
-//	typedData := L1Payload(phantomAgent)
-//
-//	sig, err := SignInner(privateKey, typedData)
-//	if err != nil {
-//		return nil, err
-//	}
-//
-//	// Step 4: Sign using EIP-712
-//	return map[string]interface{}{
-//		"r": sig.R,
-//		"s": sig.S,
-//		"v": sig.V,
-//	}, nil
-//}
-
 func SignL1Action(
 	privateKey *ecdsa.PrivateKey,
 	action any,
@@ -373,16 +339,13 @@ func SignL1Action(
 	expiresAfter *int64,
 	isMainnet bool,
 ) (SignatureResult, error) {
-	// Step 1: Create action hash
+
 	hash := ActionHash(action, vaultAddress, timestamp, expiresAfter)
 
-	// Step 2: Construct phantom agent
 	phantomAgent := ConstructPhantomAgent(hash, isMainnet)
 
-	// Step 3: Create l1 payload
 	typedData := L1Payload(phantomAgent)
 
-	// Step 4: Sign using EIP-712
 	return SignInner(privateKey, typedData)
 }
 
@@ -441,8 +404,8 @@ func SignUserSignedAction(privateKey *ecdsa.PrivateKey, action map[string]interf
 	}, nil
 }
 
-// SignInner performs the actual signing and returns SignatureResult like reference SDK
 func SignInner(privateKey *ecdsa.PrivateKey, typedData apitypes.TypedData) (SignatureResult, error) {
+
 	// Create EIP-712 hash
 	domainSeparator, err := typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
 	if err != nil {
@@ -453,10 +416,10 @@ func SignInner(privateKey *ecdsa.PrivateKey, typedData apitypes.TypedData) (Sign
 	if err != nil {
 		return SignatureResult{}, fmt.Errorf("failed to hash typed data: %w", err)
 	}
-
 	rawData := []byte{0x19, 0x01}
 	rawData = append(rawData, domainSeparator...)
 	rawData = append(rawData, typedDataHash...)
+
 	msgHash := crypto.Keccak256Hash(rawData)
 
 	signature, err := crypto.Sign(msgHash.Bytes(), privateKey)
@@ -464,16 +427,17 @@ func SignInner(privateKey *ecdsa.PrivateKey, typedData apitypes.TypedData) (Sign
 		return SignatureResult{}, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// Extract r, s, v components
 	r := new(big.Int).SetBytes(signature[:32])
 	s := new(big.Int).SetBytes(signature[32:64])
 	v := int(signature[64]) + 27
 
-	return SignatureResult{
+	result := SignatureResult{
 		R: hexutil.EncodeBig(r),
 		S: hexutil.EncodeBig(s),
 		V: v,
-	}, nil
+	}
+
+	return result, nil
 }
 
 // OrderTypeToWire converts OrderType to wire format

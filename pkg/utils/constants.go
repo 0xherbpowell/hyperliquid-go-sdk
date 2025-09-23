@@ -16,7 +16,7 @@ const (
 
 	// Signature configurations
 	SignatureChainID = "0x66eee"
-	EIP712ChainID    = 1337
+	EIP712ChainID    = 42161 // Arbitrum mainnet chain ID
 
 	// Decimal places
 	USDDecimals = 6

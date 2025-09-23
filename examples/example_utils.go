@@ -17,6 +17,8 @@ import (
 )
 
 // Config represents the configuration structure
+// Note: examples should not prompt for env files or private keys; this is only for
+// optional local convenience when present.
 type Config struct {
 	SecretKey      string `json:"secret_key"`
 	AccountAddress string `json:"account_address"`
@@ -24,12 +26,11 @@ type Config struct {
 
 // Setup initializes the exchange and info clients for examples
 func Setup(baseURL string, skipWS bool) (string, *client.Info, *client.Exchange) {
-	// Try to get private key from environment variable first
+	// Read optional environment values without logging them
 	privateKeyHex := os.Getenv("HYPERLIQUID_PRIVATE_KEY")
 	address := os.Getenv("HYPERLIQUID_ADDRESS")
-	log.Printf("HYPERLIQUID_PRIVATE_KEY: %s\n", privateKeyHex)
-	log.Printf("HYPERLIQUID_ADDRESS: %s\n", address)
-	// If not found in environment, try to read from config file
+
+	// Optional: fall back to config.json if present, but do not require it
 	if privateKeyHex == "" {
 		config := loadConfig()
 		privateKeyHex = config.SecretKey
@@ -39,7 +40,7 @@ func Setup(baseURL string, skipWS bool) (string, *client.Info, *client.Exchange)
 	}
 
 	if privateKeyHex == "" {
-		log.Fatal("Private key not found. Set HYPERLIQUID_PRIVATE_KEY environment variable or update config.json")
+		log.Fatal("No signing key configured; cannot place orders. Configure a signer in your environment or code.")
 	}
 
 	// Parse private key
@@ -56,7 +57,7 @@ func Setup(baseURL string, skipWS bool) (string, *client.Info, *client.Exchange)
 		// No account address specified, use the wallet address directly
 		address = walletAddress
 		fmt.Printf("Direct wallet mode: %s\n", address)
-	} else if address != walletAddress {
+	} else if !strings.EqualFold(address, walletAddress) {
 		// Agent mode: wallet signs for the account
 		fmt.Printf("Agent mode: Account %s, Agent wallet %s\n", address, walletAddress)
 		// Keep the original account address - the SDK will handle agent signing
@@ -141,13 +142,11 @@ func loadConfig() *Config {
 
 	// Check if config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		fmt.Println("config.json not found. Please set environment variables or create config.json")
 		return &Config{}
 	}
 
 	file, err := os.Open(configPath)
 	if err != nil {
-		log.Printf("Error opening config file: %v", err)
 		return &Config{}
 	}
 	defer file.Close()
@@ -155,7 +154,6 @@ func loadConfig() *Config {
 	var config Config
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&config); err != nil {
-		log.Printf("Error decoding config file: %v", err)
 		return &Config{}
 	}
 

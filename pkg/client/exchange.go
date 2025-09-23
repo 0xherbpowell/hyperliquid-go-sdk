@@ -2,6 +2,7 @@ package client
 
 import (
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -93,7 +94,11 @@ func (e *Exchange) postAction(action map[string]interface{}, signature interface
 		"expiresAfter": e.expiresAfter, // Always include, can be nil
 	}
 
-	log.Println("Payload:", payload)
+	// Note: user field should not be included in payload per API requirements
+
+	// Debug: print the actual JSON payload
+	jsonPayload, _ := json.MarshalIndent(payload, "", "  ")
+	log.Printf("Payload JSON:\n%s\n", string(jsonPayload))
 	return e.Post("/exchange", payload)
 }
 
