@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"hyperliquid-go-sdk/pkg/client"
@@ -44,9 +47,10 @@ func Setup(baseURL string, skipWS bool) (string, *client.Info, *client.Exchange)
 	if err != nil {
 		log.Fatalf("Failed to parse private key: %v", err)
 	}
+	debugSignature(privateKey, address)
 	// Get address from private key - this is who will be signing
 	walletAddress := utils.GetAddressFromPrivateKey(privateKey)
-	
+
 	// Handle agent vs direct wallet scenarios
 	if address == "" {
 		// No account address specified, use the wallet address directly
@@ -101,6 +105,34 @@ func Setup(baseURL string, skipWS bool) (string, *client.Info, *client.Exchange)
 	}
 
 	return address, info, exchange
+}
+
+func debugSignature(privateKey *ecdsa.PrivateKey, accountAddress string) {
+	// Verify the address derivation
+	derivedAddress := utils.GetAddressFromPrivateKey(privateKey)
+	fmt.Printf("Private key derives to: %s\n", derivedAddress)
+	fmt.Printf("Account address: %s\n", accountAddress)
+	fmt.Printf("Addresses match: %t\n", strings.EqualFold(derivedAddress, accountAddress))
+
+	// Test a simple signature to verify the private key works
+	testMessage := []byte("test message")
+	testHash := crypto.Keccak256Hash(testMessage)
+	signature, err := crypto.Sign(testHash.Bytes(), privateKey)
+	if err != nil {
+		fmt.Printf("Failed to create test signature: %v\n", err)
+		return
+	}
+
+	// Recover the public key from signature
+	recoveredPubKey, err := crypto.SigToPub(testHash.Bytes(), signature)
+	if err != nil {
+		fmt.Printf("Failed to recover public key: %v\n", err)
+		return
+	}
+
+	recoveredAddress := crypto.PubkeyToAddress(*recoveredPubKey)
+	fmt.Printf("Recovered address from test signature: %s\n", recoveredAddress.Hex())
+	fmt.Printf("Recovery matches derived: %t\n", strings.EqualFold(recoveredAddress.Hex(), derivedAddress))
 }
 
 // loadConfig loads configuration from config.json file

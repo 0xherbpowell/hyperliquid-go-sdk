@@ -14,9 +14,9 @@ const (
 	MainnetChainName = "Mainnet"
 	TestnetChainName = "Testnet"
 
-// Signature configurations
-SignatureChainID = "0x66eee"
-EIP712ChainID    = 1337
+	// Signature configurations
+	SignatureChainID = "0x66eee"
+	EIP712ChainID    = 1337
 
 	// Decimal places
 	USDDecimals = 6

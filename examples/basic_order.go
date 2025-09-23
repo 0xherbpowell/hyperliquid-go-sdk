@@ -2,9 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
-
 	"hyperliquid-go-sdk/pkg/utils"
+	"log"
 )
 
 func main() {

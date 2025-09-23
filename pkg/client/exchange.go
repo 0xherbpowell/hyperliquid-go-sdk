@@ -59,7 +59,7 @@ func (e *Exchange) SetExpiresAfter(expiresAfter *int64) {
 }
 
 // postAction posts an action to the exchange
-func (e *Exchange) postAction(action map[string]interface{}, signature map[string]interface{}, nonce int64) (map[string]interface{}, error) {
+func (e *Exchange) postAction(action map[string]interface{}, signature interface{}, nonce int64) (map[string]interface{}, error) {
 	var vaultAddress *string
 	// Only add vaultAddress for certain action types
 	actionType, ok := action["type"].(string)
@@ -69,45 +69,42 @@ func (e *Exchange) postAction(action map[string]interface{}, signature map[strin
 		vaultAddress = nil
 	}
 
+	// Convert signature to map format if it's a SignatureResult
+	var sigMap map[string]interface{}
+	switch sig := signature.(type) {
+	case utils.SignatureResult:
+		sigMap = map[string]interface{}{
+			"r": sig.R,
+			"s": sig.S,
+			"v": sig.V,
+		}
+	case map[string]interface{}:
+		sigMap = sig
+	default:
+		return nil, fmt.Errorf("unsupported signature type")
+	}
+
 	payload := map[string]interface{}{
 		"action":    action,
 		"nonce":     nonce,
-		"signature": signature,
+		"signature": sigMap,
 	}
-	
+
 	// Add optional fields only if they have values
 	if vaultAddress != nil {
 		payload["vaultAddress"] = vaultAddress
 	}
-	
+
 	if e.expiresAfter != nil {
 		payload["expiresAfter"] = e.expiresAfter
 	}
-	if vaultAddress != nil {
-		payload["vaultAddress"] = vaultAddress
-	}
-	
-	// Only add expiresAfter if not nil
-	if e.expiresAfter != nil {
-		payload["expiresAfter"] = e.expiresAfter
-	}
-	
-	// TODO: Check if isFrontend is needed
-	// Temporarily removing to test
-	// if actionType == "order" || actionType == "cancel" || actionType == "cancelAll" || actionType == "modify" {
-	// 	payload["isFrontend"] = true
-	// }
-	
-	// Handle agent mode: if account address differs from wallet address
-	// Note: The API determines the user from signature recovery, not from an explicit user field
+
+	// Handle agent mode: if account address differs from wallet address, include user field
 	walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
 	if e.accountAddress != nil && *e.accountAddress != walletAddress {
-		// Agent mode: signing with agent key for account
-		// The signature should contain the agent's signature, and the API will determine
-		// the user account through the agent authorization mechanism
-		// payload["user"] = *e.accountAddress // Commented out - not in official API spec
+		payload["user"] = *e.accountAddress
 	}
-	
+
 	log.Println("Payload:", payload)
 	return e.Post("/exchange", payload)
 }
@@ -233,15 +230,14 @@ func (e *Exchange) BulkOrders(orderRequests []types.OrderRequest, builder *types
 
 	orderAction := utils.OrderWiresToOrderAction(orderWires, builder)
 
-	// Use SignL1ActionWithAccount to handle agent mode properly
-	signature, err := utils.SignL1ActionWithAccount(
+	// Use SignL1Action directly - postAction will handle the conversion
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		orderAction,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign order action: %w", err)
@@ -348,14 +344,13 @@ func (e *Exchange) Cancel(coin string, oid int) (map[string]interface{}, error) 
 		},
 	}
 
-	signature, err := utils.SignL1ActionWithAccount(
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign cancel action: %w", err)
@@ -383,14 +378,13 @@ func (e *Exchange) CancelByCloid(coin string, cloid *types.Cloid) (map[string]in
 		},
 	}
 
-	signature, err := utils.SignL1ActionWithAccount(
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign cancel by cloid action: %w", err)
@@ -425,7 +419,7 @@ func (e *Exchange) Modify(oid int, orderRequest types.OrderRequest) (map[string]
 	if orderWire.C != nil {
 		orderMap["c"] = *orderWire.C
 	}
-	
+
 	action := map[string]interface{}{
 		"type": "modify",
 		"modifies": []map[string]interface{}{
@@ -436,14 +430,13 @@ func (e *Exchange) Modify(oid int, orderRequest types.OrderRequest) (map[string]
 		},
 	}
 
-	signature, err := utils.SignL1ActionWithAccount(
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign modify action: %w", err)
@@ -460,14 +453,13 @@ func (e *Exchange) CancelAll() (map[string]interface{}, error) {
 		"type": "cancelAll",
 	}
 
-	signature, err := utils.SignL1ActionWithAccount(
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign cancel all action: %w", err)
@@ -492,14 +484,13 @@ func (e *Exchange) UpdateLeverage(coin string, isCross bool, leverage int) (map[
 		"leverage": leverage,
 	}
 
-	signature, err := utils.SignL1ActionWithAccount(
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign update leverage action: %w", err)
@@ -524,14 +515,13 @@ func (e *Exchange) UpdateIsolatedMargin(coin string, isBuy bool, ntli int64) (ma
 		"ntli":  ntli,
 	}
 
-	signature, err := utils.SignL1ActionWithAccount(
+	signature, err := utils.SignL1Action(
 		e.privateKey,
 		action,
 		e.vaultAddress,
 		timestamp,
 		e.expiresAfter,
 		e.IsMainnet(),
-		e.accountAddress,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign update isolated margin action: %w", err)
@@ -661,7 +651,7 @@ func (e *Exchange) ApproveAgent(agentName ...string) (*ApproveAgentResult, error
 	signAction := map[string]interface{}{
 		"agentAddress": strings.ToLower(agentAddress),
 		"agentName":    name,
-		"nonce":       fmt.Sprintf("%d", nonce), // String for EIP712
+		"nonce":        fmt.Sprintf("%d", nonce), // String for EIP712
 	}
 
 	// Sign the action
@@ -674,8 +664,8 @@ func (e *Exchange) ApproveAgent(agentName ...string) (*ApproveAgentResult, error
 	payload := map[string]interface{}{
 		"type":         "approveAgent",
 		"agentAddress": strings.ToLower(agentAddress),
-		"nonce":       nonce, // int64 for API
-		"signature":   signature,
+		"nonce":        nonce, // int64 for API
+		"signature":    signature,
 	}
 
 	// Only include agentName if not empty

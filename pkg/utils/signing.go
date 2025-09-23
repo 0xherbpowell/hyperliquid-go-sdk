@@ -337,11 +337,15 @@ func UserSignedPayload(primaryType string, payloadTypes []apitypes.Type, action 
 }
 
 // SignL1Action signs an L1 action and returns SignatureResult
-func SignL1Action(privateKey *ecdsa.PrivateKey, action interface{}, vaultAddress string, nonce int64, expiresAfter *int64, isMainnet bool) (SignatureResult, error) {
+func SignL1Action(privateKey *ecdsa.PrivateKey, action interface{}, vaultAddress *string, nonce int64, expiresAfter *int64, isMainnet bool) (map[string]interface{}, error) {
 	// Step 1: Create action hash
-	hash, err := ActionHash(action, &vaultAddress, nonce, expiresAfter)
+	var vaultPtr *string
+	if vaultAddress != nil {
+		vaultPtr = vaultAddress
+	}
+	hash, err := ActionHash(action, vaultPtr, nonce, expiresAfter)
 	if err != nil {
-		return SignatureResult{}, err
+		return nil, err
 	}
 
 	// Step 2: Construct phantom agent
@@ -350,34 +354,43 @@ func SignL1Action(privateKey *ecdsa.PrivateKey, action interface{}, vaultAddress
 	// Step 3: Create l1 payload
 	typedData := L1Payload(phantomAgent)
 
-	// Step 4: Sign using EIP-712
-	return SignInner(privateKey, typedData)
-}
-
-// SignL1ActionWithAccount signs an L1 action with optional account address for agent trading
-// Returns map[string]interface{} for compatibility with existing exchange code
-func SignL1ActionWithAccount(privateKey *ecdsa.PrivateKey, action interface{}, activePool *string, nonce int64, expiresAfter *int64, isMainnet bool, accountAddress *string) (map[string]interface{}, error) {
-	// For agent trading, the signature is the same, but the system relies on
-	// the agent being pre-authorized to act on behalf of the account
-	// The account address is handled at the exchange/API level, not in the signature
-
-	vaultAddress := ""
-	if activePool != nil {
-		vaultAddress = *activePool
-	}
-
-	sig, err := SignL1Action(privateKey, action, vaultAddress, nonce, expiresAfter, isMainnet)
+	sig, err := SignInner(privateKey, typedData)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert SignatureResult to map for compatibility
+	// Step 4: Sign using EIP-712
 	return map[string]interface{}{
 		"r": sig.R,
 		"s": sig.S,
 		"v": sig.V,
 	}, nil
 }
+
+// SignL1ActionWithAccount signs an L1 action with optional account address for agent trading
+// Returns map[string]interface{} for compatibility with existing exchange code
+//func SignL1ActionWithAccount(privateKey *ecdsa.PrivateKey, action interface{}, activePool *string, nonce int64, expiresAfter *int64, isMainnet bool, accountAddress *string) (map[string]interface{}, error) {
+//	// For agent trading, the signature is the same, but the system relies on
+//	// the agent being pre-authorized to act on behalf of the account
+//	// The account address is handled at the exchange/API level, not in the signature
+//
+//	vaultAddress := ""
+//	if activePool != nil {
+//		vaultAddress = *activePool
+//	}
+//
+//	sig, err := SignL1Action(privateKey, action, &vaultAddress, nonce, expiresAfter, isMainnet)
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	// Convert SignatureResult to map for compatibility
+//	return map[string]interface{}{
+//		"r": sig.R,
+//		"s": sig.S,
+//		"v": sig.V,
+//	}, nil
+//}
 
 // SignUserSignedAction signs a user signed action
 func SignUserSignedAction(privateKey *ecdsa.PrivateKey, action map[string]interface{}, payloadTypes []apitypes.Type, primaryType string, isMainnet bool) (map[string]interface{}, error) {
