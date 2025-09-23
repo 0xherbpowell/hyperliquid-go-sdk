@@ -70,11 +70,26 @@ func (e *Exchange) postAction(action map[string]interface{}, signature map[strin
 	}
 
 	payload := map[string]interface{}{
-		"action":       action,
-		"nonce":        nonce,
-		"signature":    signature,
-		"vaultAddress": vaultAddress,
-		"expiresAfter": e.expiresAfter, // Always include, even if nil (like Python SDK)
+		"action":    action,
+		"nonce":     nonce,
+		"signature": signature,
+	}
+	
+	// Add optional fields only if they have values
+	if vaultAddress != nil {
+		payload["vaultAddress"] = vaultAddress
+	}
+	
+	if e.expiresAfter != nil {
+		payload["expiresAfter"] = e.expiresAfter
+	}
+	if vaultAddress != nil {
+		payload["vaultAddress"] = vaultAddress
+	}
+	
+	// Only add expiresAfter if not nil
+	if e.expiresAfter != nil {
+		payload["expiresAfter"] = e.expiresAfter
 	}
 	
 	// TODO: Check if isFrontend is needed
@@ -83,11 +98,14 @@ func (e *Exchange) postAction(action map[string]interface{}, signature map[strin
 	// 	payload["isFrontend"] = true
 	// }
 	
-	// Handle agent mode: if account address differs from wallet address, include user field
+	// Handle agent mode: if account address differs from wallet address
+	// Note: The API determines the user from signature recovery, not from an explicit user field
 	walletAddress := utils.GetAddressFromPrivateKey(e.privateKey)
 	if e.accountAddress != nil && *e.accountAddress != walletAddress {
 		// Agent mode: signing with agent key for account
-		payload["user"] = *e.accountAddress
+		// The signature should contain the agent's signature, and the API will determine
+		// the user account through the agent authorization mechanism
+		// payload["user"] = *e.accountAddress // Commented out - not in official API spec
 	}
 	
 	log.Println("Payload:", payload)

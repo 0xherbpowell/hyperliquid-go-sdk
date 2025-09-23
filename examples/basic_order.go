@@ -19,12 +19,41 @@ func main() {
 
 	PrintPositions(userState)
 
-	// Place an order that should rest by setting the price below market
+	// Get ETH asset ID to ensure we're using the correct one
+	ethAsset, err := info.NameToAsset("ETH")
+	if err != nil {
+		log.Fatalf("Failed to get ETH asset ID: %v", err)
+	}
+	fmt.Printf("ETH Asset ID: %d\n", ethAsset)
+
+	// Get current ETH price to place order below market
+	mids, err := info.AllMids("")
+	if err != nil {
+		log.Printf("Failed to get mids: %v", err)
+		return
+	}
+
+	ethMid, exists := mids["ETH"]
+	if !exists {
+		log.Printf("ETH mid price not found")
+		return
+	}
+
+	ethPrice, err := utils.ParsePrice(ethMid)
+	if err != nil {
+		log.Printf("Failed to parse ETH price: %v", err)
+		return
+	}
+
+	fmt.Printf("Current ETH price: %f\n", ethPrice)
+
+	// Place an order well below market price to ensure it rests
+	orderPrice := ethPrice * 0.5 // 50% below market to ensure it rests
 	orderResult, err := exchange.Order(
 		"ETH",                 // coin
 		true,                  // isBuy
 		0.01,                  // size (smaller, safer size)
-		4000.0,                // limit price
+		orderPrice,            // limit price (well below market)
 		CreateGtcLimitOrder(), // order type
 		false,                 // reduce only
 		nil,                   // cloid
