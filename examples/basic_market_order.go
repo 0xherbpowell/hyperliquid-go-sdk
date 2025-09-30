@@ -57,14 +57,24 @@ func main() {
 		return
 	}
 
+	// Get ETH asset ID for tick size calculation
+	ethAsset, err := info.NameToAsset("ETH")
+	if err != nil {
+		log.Printf("Failed to get ETH asset ID: %v", err)
+		return
+	}
+
 	// Add some slippage to ensure execution
-	limitPrice := ethPrice * 1.02 // 2% above mid for buy order
+	rawLimitPrice := ethPrice * 1.02 // 2% above mid for buy order
+	limitPrice := RoundToTickSize(rawLimitPrice, ethAsset) // Round to proper tick size
+
+	fmt.Printf("ETH mid: %f, Raw limit: %f, Rounded limit: %f\n", ethPrice, rawLimitPrice, limitPrice)
 
 	orderResult2, err := exchange.Order(
 		"ETH",               // coin
 		true,                // isBuy
 		0.05,                // size (smaller size)
-		limitPrice,          // limit price with slippage
+		limitPrice,          // limit price with slippage (tick-aligned)
 		CreateIocLimitOrder(), // IOC order type
 		false,               // reduce only
 		GenerateCloid(),     // client order ID

@@ -320,21 +320,30 @@ func (e *Exchange) TriggerOrder(
 
 // Cancel cancels an order by order ID
 func (e *Exchange) Cancel(coin string, oid int) (map[string]interface{}, error) {
-	asset, err := e.info.NameToAsset(coin)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get asset for coin %s: %w", coin, err)
+	return e.BulkCancel([]types.CancelRequest{{Coin: coin, Oid: oid}})
+}
+
+// BulkCancel cancels multiple orders by order IDs
+func (e *Exchange) BulkCancel(requests []types.CancelRequest) (map[string]interface{}, error) {
+	var cancels []map[string]interface{}
+
+	for _, req := range requests {
+		asset, err := e.info.NameToAsset(req.Coin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get asset for coin %s: %w", req.Coin, err)
+		}
+
+		cancels = append(cancels, map[string]interface{}{
+			"a": asset,
+			"o": req.Oid,
+		})
 	}
 
 	timestamp := utils.GetTimestampMS()
 
 	action := map[string]interface{}{
-		"type": "cancel",
-		"cancels": []map[string]interface{}{
-			{
-				"a":   asset,
-				"oid": oid,
-			},
-		},
+		"type":    "cancel",
+		"cancels": cancels,
 	}
 
 	signature, err := utils.SignL1Action(
@@ -352,23 +361,33 @@ func (e *Exchange) Cancel(coin string, oid int) (map[string]interface{}, error) 
 	return e.postAction(action, signature, timestamp)
 }
 
+
 // CancelByCloid cancels an order by client order ID
 func (e *Exchange) CancelByCloid(coin string, cloid *types.Cloid) (map[string]interface{}, error) {
-	asset, err := e.info.NameToAsset(coin)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get asset for coin %s: %w", coin, err)
+	return e.BulkCancelByCloid([]types.CancelByCloidRequest{{Coin: coin, Cloid: cloid}})
+}
+
+// BulkCancelByCloid cancels multiple orders by client order IDs
+func (e *Exchange) BulkCancelByCloid(requests []types.CancelByCloidRequest) (map[string]interface{}, error) {
+	var cancels []map[string]interface{}
+
+	for _, req := range requests {
+		asset, err := e.info.NameToAsset(req.Coin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get asset for coin %s: %w", req.Coin, err)
+		}
+
+		cancels = append(cancels, map[string]interface{}{
+			"asset": asset,
+			"cloid": req.Cloid.ToRaw(),
+		})
 	}
 
 	timestamp := utils.GetTimestampMS()
 
 	action := map[string]interface{}{
-		"type": "cancelByCloid",
-		"cancels": []map[string]interface{}{
-			{
-				"asset": asset,
-				"cloid": cloid.ToRaw(),
-			},
-		},
+		"type":    "cancelByCloid",
+		"cancels": cancels,
 	}
 
 	signature, err := utils.SignL1Action(

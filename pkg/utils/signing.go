@@ -196,15 +196,185 @@ func addressToBytes(address string) []byte {
 	return bytes
 }
 
+// OrderedLimitOrderType represents a limit order type with deterministic key ordering
+type OrderedLimitOrderType struct {
+	Tif string `msgpack:"tif"`
+}
+
+// OrderedOrderType represents an order type with deterministic key ordering
+type OrderedOrderType struct {
+	Limit *OrderedLimitOrderType `msgpack:"limit,omitempty"`
+}
+
+// OrderedOrderWire represents an order with deterministic key ordering for msgpack
+type OrderedOrderWire struct {
+	A int                `msgpack:"a"` // asset
+	B bool               `msgpack:"b"` // isBuy
+	P string             `msgpack:"p"` // price
+	S string             `msgpack:"s"` // size
+	R bool               `msgpack:"r"` // reduceOnly
+	T OrderedOrderType   `msgpack:"t"` // orderType
+	C *string            `msgpack:"c,omitempty"` // cloid (optional)
+}
+
+// OrderedCancelWire represents a cancel with deterministic key ordering for msgpack
+type OrderedCancelWire struct {
+	A int `msgpack:"a"` // asset
+	O int `msgpack:"o"` // order id
+}
+
+// OrderedCancelByCloidWire represents a cancel by cloid with deterministic key ordering for msgpack
+type OrderedCancelByCloidWire struct {
+	Asset int    `msgpack:"asset"` // asset
+	Cloid string `msgpack:"cloid"` // client order id
+}
+
+// OrderedActionMap represents an action with deterministic key ordering for msgpack
+type OrderedActionMap struct {
+	Type     string              `msgpack:"type"`
+	Orders   []OrderedOrderWire  `msgpack:"orders,omitempty"`
+	Cancels  interface{}         `msgpack:"cancels,omitempty"`
+	Grouping string              `msgpack:"grouping,omitempty"`
+}
+
 // ActionHash computes the hash of an action using same logic as reference SDK
 func ActionHash(action interface{}, vaultAddress *string, nonce int64, expiresAfter *int64) []byte {
+	// Convert action to ordered format if it's a map
+	var actionToEncode interface{}
+	if actionMap, ok := action.(map[string]interface{}); ok {
+		switch actionMap["type"] {
+		case "order":
+			// Convert orders to ordered format - handle both []interface{} and []map[string]interface{}
+			var ordersArray []interface{}
+			if arr, ok := actionMap["orders"].([]interface{}); ok {
+				ordersArray = arr
+			} else if mapArr, ok := actionMap["orders"].([]map[string]interface{}); ok {
+				// Convert []map[string]interface{} to []interface{}
+				ordersArray = make([]interface{}, len(mapArr))
+				for i, m := range mapArr {
+					ordersArray[i] = m
+				}
+			} else {
+				panic(fmt.Sprintf("unexpected orders type: %T", actionMap["orders"]))
+			}
+			orderedOrders := make([]OrderedOrderWire, len(ordersArray))
+			
+			for i, orderIntf := range ordersArray {
+				orderMap := orderIntf.(map[string]interface{})
+				
+				// Convert order type
+				orderType := OrderedOrderType{}
+				if tMap, ok := orderMap["t"].(map[string]interface{}); ok {
+					if limitMap, ok := tMap["limit"].(map[string]interface{}); ok {
+						orderType.Limit = &OrderedLimitOrderType{
+							Tif: limitMap["tif"].(string),
+						}
+					}
+				}
+				
+				orderedOrder := OrderedOrderWire{
+					A: orderMap["a"].(int),
+					B: orderMap["b"].(bool),
+					P: orderMap["p"].(string),
+					S: orderMap["s"].(string),
+					R: orderMap["r"].(bool),
+					T: orderType,
+				}
+				
+				// Add cloid if present
+				if cloid, ok := orderMap["c"]; ok && cloid != nil {
+					cloidStr := cloid.(string)
+					orderedOrder.C = &cloidStr
+				}
+				
+				orderedOrders[i] = orderedOrder
+			}
+			
+			orderedAction := OrderedActionMap{
+				Type:     actionMap["type"].(string),
+				Orders:   orderedOrders,
+				Grouping: actionMap["grouping"].(string),
+			}
+			actionToEncode = orderedAction
+			
+		case "cancel":
+			// Convert cancels to ordered format
+			var cancelsArray []interface{}
+			if arr, ok := actionMap["cancels"].([]interface{}); ok {
+				cancelsArray = arr
+			} else if mapArr, ok := actionMap["cancels"].([]map[string]interface{}); ok {
+				// Convert []map[string]interface{} to []interface{}
+				cancelsArray = make([]interface{}, len(mapArr))
+				for i, m := range mapArr {
+					cancelsArray[i] = m
+				}
+			} else {
+				panic(fmt.Sprintf("unexpected cancels type: %T", actionMap["cancels"]))
+			}
+			orderedCancels := make([]OrderedCancelWire, len(cancelsArray))
+			
+			for i, cancelIntf := range cancelsArray {
+				cancelMap := cancelIntf.(map[string]interface{})
+				orderedCancel := OrderedCancelWire{
+					A: cancelMap["a"].(int),
+					O: cancelMap["o"].(int),
+				}
+				orderedCancels[i] = orderedCancel
+			}
+			
+			orderedAction := OrderedActionMap{
+				Type:    actionMap["type"].(string),
+				Cancels: orderedCancels,
+			}
+			actionToEncode = orderedAction
+			
+		case "cancelByCloid":
+			// Convert cancels by cloid to ordered format
+			var cancelsArray []interface{}
+			if arr, ok := actionMap["cancels"].([]interface{}); ok {
+				cancelsArray = arr
+			} else if mapArr, ok := actionMap["cancels"].([]map[string]interface{}); ok {
+				// Convert []map[string]interface{} to []interface{}
+				cancelsArray = make([]interface{}, len(mapArr))
+				for i, m := range mapArr {
+					cancelsArray[i] = m
+				}
+			} else {
+				panic(fmt.Sprintf("unexpected cancels type: %T", actionMap["cancels"]))
+			}
+			orderedCancelsByCloid := make([]OrderedCancelByCloidWire, len(cancelsArray))
+			
+			for i, cancelIntf := range cancelsArray {
+				cancelMap := cancelIntf.(map[string]interface{})
+				orderedCancel := OrderedCancelByCloidWire{
+					Asset: cancelMap["asset"].(int),
+					Cloid: cancelMap["cloid"].(string),
+				}
+				orderedCancelsByCloid[i] = orderedCancel
+			}
+			
+			orderedAction := OrderedActionMap{
+				Type:    actionMap["type"].(string),
+				Cancels: orderedCancelsByCloid,
+			}
+			actionToEncode = orderedAction
+			
+		default:
+			// For other action types, use as-is
+			actionToEncode = action
+		}
+	} else {
+		actionToEncode = action
+	}
+
 	// Pack action using msgpack with consistent settings
+	// Use sorted keys like the other working Go SDK
 	var buf bytes.Buffer
 	enc := msgpack.NewEncoder(&buf)
 	enc.SetSortMapKeys(true)
 	enc.UseCompactInts(true)
 
-	err := enc.Encode(action)
+	err := enc.Encode(actionToEncode)
 	if err != nil {
 		panic(fmt.Sprintf("failed to marshal action: %v", err))
 	}
@@ -542,12 +712,14 @@ func OrderWiresToOrderAction(orderWires []types.OrderWire, builder *types.Builde
 		orderMaps[i] = orderMap
 	}
 
-	// Create action with proper structure matching TypeScript SDK
-	action := map[string]interface{}{
-		"type":     "order",
-		"orders":   orderMaps, // Now using maps instead of structs
-		"grouping": "na",
-	}
+	// Create action with proper structure matching Python SDK key order
+	// CRITICAL: Python SDK creates keys in order: type, orders, grouping
+	// Since Go maps don't guarantee order and msgpack is sensitive to key order,
+	// we must ensure consistent ordering to match Python SDK exactly
+	action := make(map[string]interface{})
+	action["type"] = "order"
+	action["orders"] = orderMaps
+	action["grouping"] = "na"
 
 	if builder != nil {
 		action["builder"] = map[string]interface{}{

@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
+	"math"
 	"github.com/ethereum/go-ethereum/crypto"
 	"log"
 	"os"
@@ -229,6 +230,79 @@ func PrintOrderResult(result map[string]interface{}) {
 func ParsePrice(priceStr string) (float64, error) {
 	return strconv.ParseFloat(priceStr, 64)
 }
+
+// RoundToTickSize rounds a price according to Hyperliquid's exact rules
+// Based on the official Python SDK rounding.py example
+// Dynamically fetches asset metadata from the info client
+func RoundToTickSize(price float64, coin string, info *client.Info) float64 {
+	// Get asset metadata dynamically
+	meta, err := info.Meta("") // Empty string for default dex
+	if err != nil {
+		log.Printf("Failed to get meta data, using default rounding: %v", err)
+		return price // fallback to original price
+	}
+	
+	// Find the asset info for this coin
+	var szDecimals int
+	var assetId int
+	found := false
+	
+	// Look through the universe for our coin
+	for _, assetInfo := range meta.Universe {
+		if assetInfo.Name == coin {
+			szDecimals = assetInfo.SzDecimals
+			found = true
+			break
+		}
+	}
+	
+	// Get asset ID
+	assetId, err = info.NameToAsset(coin)
+	if err != nil {
+		log.Printf("Failed to get asset ID for %s: %v", coin, err)
+		return price
+	}
+	
+	if !found {
+		log.Printf("Could not find szDecimals for coin %s, using default", coin)
+		szDecimals = 2 // Default
+	}
+	
+	// Determine max decimals: 6 for perps, 8 for spot
+	maxDecimals := 6
+	if assetId >= 10000 { // Spot assets start from 10000
+		maxDecimals = 8
+	}
+	
+	// If price > 100,000, just round to integer
+	if price > 100000 {
+		return math.Round(price)
+	}
+	
+	// Otherwise, round to 5 significant figures and max_decimals - szDecimals decimal places
+	// Match Python's exact behavior: round(float(f"{px:.5g}"), max_decimals - sz_decimals[coin])
+	
+	// Step 1: Convert to string with 5 significant figures (like Python's :.5g)
+	fiveSigFigsStr := fmt.Sprintf("%.5g", price)
+	
+	// Step 2: Convert back to float
+	fiveSigFigs, err := strconv.ParseFloat(fiveSigFigsStr, 64)
+	if err != nil {
+		fiveSigFigs = price // fallback to original if parsing fails
+	}
+	
+	// Step 3: Round to appropriate decimal places
+	decimalPlaces := maxDecimals - szDecimals
+	if decimalPlaces < 0 {
+		decimalPlaces = 0
+	}
+	
+	fmt.Printf("Dynamic rounding for %s (asset %d): szDecimals=%d, maxDecimals=%d, decimalPlaces=%d\n", coin, assetId, szDecimals, maxDecimals, decimalPlaces)
+	
+	multiplier := math.Pow(10, float64(decimalPlaces))
+	return math.Round(fiveSigFigs*multiplier) / multiplier
+}
+
 
 // GetRestingOid extracts the resting order ID from order result
 func GetRestingOid(orderResult map[string]interface{}) (int, bool) {

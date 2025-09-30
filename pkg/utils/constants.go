@@ -16,7 +16,7 @@ const (
 
 	// Signature configurations
 	SignatureChainID = "0x66eee"
-	EIP712ChainID    = 42161 // Arbitrum mainnet chain ID
+	EIP712ChainID    = 1337  // EIP712 chain ID for Hyperliquid signing (matches Python SDK)
 
 	// Decimal places
 	USDDecimals = 6

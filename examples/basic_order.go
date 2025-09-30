@@ -18,44 +18,48 @@ func main() {
 
 	PrintPositions(userState)
 
-	// Get ETH asset ID to ensure we're using the correct one
-	ethAsset, err := info.NameToAsset("ETH")
+	// Get BTC asset ID to ensure we're using the correct one
+	btcAsset, err := info.NameToAsset("BTC")
 	if err != nil {
-		log.Fatalf("Failed to get ETH asset ID: %v", err)
+		log.Fatalf("Failed to get BTC asset ID: %v", err)
 	}
-	fmt.Printf("ETH Asset ID: %d\n", ethAsset)
+	fmt.Printf("BTC Asset ID: %d\n", btcAsset)
 
-	// Get current ETH price to place order below market
+	// Get current BTC price to place order below market
 	mids, err := info.AllMids("")
 	if err != nil {
 		log.Printf("Failed to get mids: %v", err)
 		return
 	}
 
-	ethMid, exists := mids["ETH"]
+	btcMid, exists := mids["BTC"]
 	if !exists {
-		log.Printf("ETH mid price not found")
+		log.Printf("BTC mid price not found")
 		return
 	}
 
-	ethPrice, err := utils.ParsePrice(ethMid)
+	btcPrice, err := utils.ParsePrice(btcMid)
 	if err != nil {
-		log.Printf("Failed to parse ETH price: %v", err)
+		log.Printf("Failed to parse BTC price: %v", err)
 		return
 	}
 
-	fmt.Printf("Current ETH price: %f\n", ethPrice)
+	fmt.Printf("Current BTC price: %f\n", btcPrice)
 
 	// Place an order well below market price to ensure it rests
-	orderPrice := ethPrice * 0.5 // 50% below market to ensure it rests
+	rawOrderPrice := btcPrice * 0.8 // 20% below market to ensure it rests
+	orderPrice := RoundToTickSize(rawOrderPrice, "BTC", info) // Round to proper tick size
+	
+	fmt.Printf("Raw order price: %f, Rounded price: %f\n", rawOrderPrice, orderPrice)
+	
 	orderResult, err := exchange.Order(
-		"ETH",                 // coin
+		"BTC",                 // coin
 		true,                  // isBuy
-		0.01,                  // size (smaller, safer size)
-		orderPrice,            // limit price (well below market)
+		0.001,                 // size (smaller size for BTC)
+		orderPrice,            // limit price (well below market, tick-aligned)
 		CreateGtcLimitOrder(), // order type
 		false,                 // reduce only
-		nil,                   // cloid
+		GenerateCloid(),       // unique client order ID
 		nil,                   // builder info
 	)
 	if err != nil {
@@ -78,7 +82,7 @@ func main() {
 		}
 
 		// Cancel the order
-		cancelResult, err := exchange.Cancel("ETH", oid)
+		cancelResult, err := exchange.Cancel("BTC", oid)
 		if err != nil {
 			log.Printf("Failed to cancel order: %v", err)
 		} else {
